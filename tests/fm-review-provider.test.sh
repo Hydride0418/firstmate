@@ -85,6 +85,40 @@ SH
   pass "code.byted.org review lookup uses bytedcli codebase path"
 }
 
+test_gitlab_branch_selector_fallback_uses_bytedcli() {
+  local case_dir fakebin log repo state head selector
+  case_dir="$TMP_ROOT/gitlab-branch"
+  fakebin=$(fm_fakebin "$case_dir")
+  repo="$case_dir/repo"
+  log="$case_dir/bytedcli.log"
+  mkdir -p "$repo"
+  git -C "$repo" init -q
+  git -C "$repo" remote add origin https://code.byted.org/group/repo.git
+  selector=feature/source-branch
+  cat > "$fakebin/bytedcli" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$log"
+case " \$* " in
+  *" --json codebase mr status $selector -R group/repo "*)
+    printf '%s\n' '{"data":{"merge_request":{"state":"opened","source_commit_id":"branch789"}}}'
+    exit 0
+    ;;
+esac
+printf '%s\n' "unexpected bytedcli args: \$*" >&2
+exit 1
+SH
+  chmod +x "$fakebin/bytedcli"
+
+  head=$(PATH="$fakebin:$PATH" fm_review_head_sha "$selector" "$repo")
+  state=$(PATH="$fakebin:$PATH" fm_review_state "$selector" "$repo")
+
+  expect_value branch789 "$head" "code.byted branch selector head lookup"
+  expect_value OPEN "$state" "code.byted branch selector state lookup"
+  assert_grep "--json codebase mr status $selector -R group/repo" "$log" "code.byted branch fallback should pass source branch selector and repo to bytedcli"
+  pass "code.byted.org branch fallback uses bytedcli source-branch selector"
+}
+
 test_url_and_remote_detection
 test_github_lookup_uses_gh
 test_gitlab_lookup_uses_bytedcli_codebase
+test_gitlab_branch_selector_fallback_uses_bytedcli

@@ -353,7 +353,20 @@ if tmux list-windows -t "$SES" -F '#{window_name}' | grep -qx "$W"; then
   exit 1
 fi
 
+pin_tmux_task_title() {
+  # Some harnesses set terminal/pane titles while starting up. Keep the tmux
+  # window name anchored to the task id, seed the pane title for UIs that read it
+  # early, and avoid propagating harness titles to the outer terminal where tmux
+  # supports that. A running application can still update pane_title later.
+  tmux set-window-option -t "$T" automatic-rename off >/dev/null 2>&1 || true
+  tmux set-window-option -t "$T" allow-rename off >/dev/null 2>&1 || true
+  tmux set-window-option -t "$T" allow-set-title off >/dev/null 2>&1 || true
+  tmux rename-window -t "$T" "$W" >/dev/null 2>&1 || true
+  tmux select-pane -t "$T" -T "$W" >/dev/null 2>&1 || true
+}
+
 tmux new-window -d -t "$SES" -n "$W" -c "$PROJ_ABS"
+pin_tmux_task_title
 if [ "$KIND" != secondmate ]; then
   tmux send-keys -t "$T" 'treehouse get' Enter
 
@@ -370,6 +383,7 @@ if [ "$KIND" != secondmate ]; then
     echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
     exit 1
   fi
+  pin_tmux_task_title
 
   # Isolation guard: refuse to launch unless WT is a genuine, ISOLATED worktree -
   # a real git worktree root, distinct from the project's primary checkout
@@ -493,5 +507,6 @@ fi
 tmux send-keys -t "$T" -l "$LAUNCH"
 sleep 0.3
 tmux send-keys -t "$T" Enter
+pin_tmux_task_title
 
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$T worktree=$WT"

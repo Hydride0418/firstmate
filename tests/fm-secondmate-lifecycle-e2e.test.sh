@@ -129,6 +129,11 @@ phase_spawn() {
   assert_no_grep 'notify=' "$LOG" "secondmate codex launch included the parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "secondmate codex launch referenced a parent turn-ended signal"
   assert_no_grep 'treehouse get' "$LOG" "secondmate spawn ran a project treehouse get"
+  assert_grep 'set-window-option -t firstmate:fm-design automatic-rename off' "$LOG" "spawn did not disable automatic window renaming"
+  assert_grep 'set-window-option -t firstmate:fm-design allow-rename off' "$LOG" "spawn did not disable program-driven window renaming"
+  assert_grep 'set-window-option -t firstmate:fm-design allow-set-title off' "$LOG" "spawn did not disable terminal-title propagation"
+  assert_grep 'rename-window -t firstmate:fm-design fm-design' "$LOG" "spawn did not anchor the tmux window name to the task id"
+  assert_grep 'select-pane -t firstmate:fm-design -T fm-design' "$LOG" "spawn did not seed the pane title with the task id"
   pass "spawn: launches in the subhome with persistent charter, records routing meta"
 }
 

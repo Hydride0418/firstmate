@@ -3,8 +3,8 @@
 #
 # The check refuses to tear down a worktree whose work has not LANDED, because
 # treehouse return hard-resets the worktree. "Landed" means reachable from a remote
-# OR - for a normal ship task whose commits are not so reachable - its PR is merged
-# and GitHub reports the current HEAD as that PR's head, or its content is already
+# OR - for a normal ship task whose commits are not so reachable - its PR/MR is merged
+# and the review provider reports the current HEAD as that review's head, or its content is already
 # in the up-to-date default branch.
 #
 # Covers two fixes:
@@ -30,6 +30,8 @@
 #   (k) no-mistakes + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
 #   (l) no-mistakes + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
 #   (m) fm-pr-check rerun after HEAD moved                      -> no stale pr_head
+#   (n) fm-pr-check with code.byted.org MR                      -> records pr_head and check wakes on merge
+#   (o) no-mistakes + merged code.byted.org MR                  -> ALLOW  (GitLab provider path)
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -194,6 +196,7 @@ case "\${1:-} \${2:-}" in
     case " \$* " in
       *"state,headRefOid"*) printf '%s\t%s\n' 'MERGED' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+      *" --json state "*) printf '%s\n' 'MERGED' ; exit 0 ;;
     esac
     ;;
 esac
@@ -201,6 +204,22 @@ echo "error: pull request not found" >&2
 exit 1
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+add_bytedcli_mr_merged_for_head() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/bytedcli" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" --json codebase mr status 8 -R group/repo "*)
+    printf '%s\n' '{"data":{"merge_request":{"state":"merged","source_commit_id":"$head"}}}'
+    exit 0
+    ;;
+esac
+echo "error: merge request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/bytedcli"
 }
 
 append_pr_meta_for_current_head() {
@@ -429,6 +448,48 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   pass "fm-pr-check does not refresh PR head after HEAD moves"
 }
 
+test_gitlab_pr_check_records_head_and_check_script() {
+  local case_dir head out
+  case_dir=$(make_case gitlab-pr-check)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_bytedcli_mr_merged_for_head "$case_dir" "$head"
+
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$PR_CHECK" task-x1 https://code.byted.org/group/repo/merge_requests/8 >/dev/null
+
+  grep -qxF 'pr=https://code.byted.org/group/repo/merge_requests/8' "$case_dir/state/task-x1.meta" \
+    || fail "gitlab-pr-check: MR URL was not recorded in meta"
+  grep -qxF "pr_head=$head" "$case_dir/state/task-x1.meta" \
+    || fail "gitlab-pr-check: verified MR head was not recorded in meta"
+
+  out=$(PATH="$case_dir/fakebin:$PATH" bash "$case_dir/state/task-x1.check.sh")
+  [ "$out" = merged ] || fail "gitlab-pr-check: generated check script did not report merged"
+  pass "fm-pr-check records code.byted.org MR head and writes a merge poll"
+}
+
+test_gitlab_merged_mr_allows_teardown() {
+  local case_dir rc head
+  case_dir=$(make_case gitlab-merged)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_bytedcli_mr_merged_for_head "$case_dir" "$head"
+  printf '%s\n' 'pr=https://code.byted.org/group/repo/merge_requests/8' >> "$case_dir/state/task-x1.meta"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "gitlab-merged: teardown should succeed when the MR is merged"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "gitlab-merged: teardown printed a REFUSED line"
+  pass "merged code.byted.org MR proves landed work without GitHub gh calls"
+}
+
 test_content_in_default_fallback_allows() {
   local case_dir rc
   case_dir=$(make_case content-landed)
@@ -510,7 +571,7 @@ test_gh_error_and_content_absent_refuses() {
 
   expect_code 1 "$rc" "gh-error: teardown should refuse when the PR lookup errors and content is not landed"
   grep -q REFUSED "$case_dir/stderr" || fail "gh-error: no REFUSED line in stderr"
-  pass "gh lookup error with content not in default refuses (fail-safe)"
+  pass "review-provider lookup error with content not in default refuses (fail-safe)"
 }
 
 test_local_only_force_overrides_unpushed() {
@@ -539,6 +600,8 @@ test_local_only_force_overrides_unpushed
 test_squash_merged_branch_deleted_allows
 test_merged_pr_with_later_local_commit_refuses
 test_pr_check_does_not_refresh_stale_pr_head
+test_gitlab_pr_check_records_head_and_check_script
+test_gitlab_merged_mr_allows_teardown
 test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses

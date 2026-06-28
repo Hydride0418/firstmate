@@ -4,12 +4,12 @@
 # For ordinary tasks, the standard Setup/Rules/Definition-of-done contract is
 # filled in. Firstmate then replaces the {TASK} placeholder with the task
 # description, acceptance criteria, and context, and may adjust other sections
-# when the task genuinely deviates (e.g. working an existing external PR instead
+# when the task genuinely deviates (e.g. working an existing external PR/MR instead
 # of shipping a new one).
 # Usage: fm-brief.sh <task-id> <repo-name> [--scout]
 #        fm-brief.sh <task-id> --secondmate <project>...
 #   --scout writes the scout contract instead: the deliverable is a report at
-#   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
+#   data/<task-id>/report.md (no branch, no push, no PR/MR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
 #   is cloned into the secondmate home, while the natural-language scope
 #   tells the main firstmate when to route work there; routine churn stays in its own home;
@@ -20,9 +20,9 @@
 # For ship tasks, the definition of done is shaped by the project's delivery mode
 # (data/projects.md via fm-project-mode.sh; see AGENTS.md project management
 # and task lifecycle):
-#   no-mistakes  implement -> /no-mistakes pipeline -> PR -> captain merge (default)
-#   direct-PR    implement -> push + open PR via gh-axi (no pipeline) -> captain merge
-#   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
+#   no-mistakes  implement -> /no-mistakes pipeline -> PR/MR -> captain merge (default)
+#   direct-PR    implement -> push + open PR/MR via provider tooling (no pipeline) -> captain merge
+#   local-only   implement on branch, stop and report "ready in branch" (no push/PR/MR);
 #                firstmate reviews, captain approves, firstmate merges to local main
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # Scout tasks ignore mode - their deliverable is a report, not a merge.
@@ -137,14 +137,14 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
-This is a SCOUT task: the deliverable is a written report, not a PR.
+This is a SCOUT task: the deliverable is a written report, not a PR/MR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
-1. Never push to any remote and never open a PR.
+1. Never push to any remote and never open a PR/MR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+3. Use gh-axi for GitHub operations, bytedcli codebase for code.byted.org/GitLab operations, and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, done, failed.
@@ -174,55 +174,24 @@ EOF
 case "$MODE" in
   direct-PR)
     SETUP2=""
-    RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
-    DOD=$(cat <<EOF
-# Definition of done
-This project ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
-Do NOT run /no-mistakes. The captain reviews and merges the PR; firstmate relays it.
-EOF
-)
+    RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR/MR.'
+    DOD_KIND=direct-PR
     ;;
   local-only)
     SETUP2=""
-    RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
-    DOD=$(cat <<EOF
-# Definition of done
-This project ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
-Firstmate then reviews your branch diff, the captain approves, and firstmate merges it into local \`main\`.
-EOF
-)
+    RULE1="1. Never push to any remote and never open a PR/MR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
+    DOD_KIND=local-only
     ;;
   *)  # no-mistakes (default)
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
-    RULE1='1. Never push to the default branch. Never merge a PR.'
-    DOD=$(cat <<EOF
-# Definition of done
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary}\` to the status file and stop.
-Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
-
-You drive no-mistakes by responding to its gates, not by implementing fixes.
-Follow no-mistakes' own guidance for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
-Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
-
-Two firstmate-specific rules layer on top of that guidance:
-- ask-user findings are not yours to answer: escalate to firstmate (rule 6) and stop.
-  When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
-- Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
-
-After /no-mistakes reports CI green, append \`done: PR {url} checks green\` and stop. You are finished.
-EOF
-)
+    RULE1='1. Never push to the default branch. Never merge a PR/MR.'
+    DOD_KIND=no-mistakes
     ;;
 esac
 
-cat > "$BRIEF" <<EOF
+{
+cat <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 # Task
@@ -240,7 +209,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 # Rules
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+3. Use gh-axi for GitHub operations, bytedcli codebase for code.byted.org/GitLab operations, and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, done, failed.
@@ -257,6 +226,46 @@ If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durab
 If this task produced durable project-intrinsic knowledge, record it in \`AGENTS.md\` as part of your change.
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
-$DOD
 EOF
+case "$DOD_KIND" in
+  direct-PR)
+    cat <<EOF
+# Definition of done
+This project ships **direct-PR**: you raise the PR/MR yourself, without the no-mistakes pipeline.
+The task is complete only when committed on your branch.
+When it is implemented and committed, push your branch and open a PR/MR with the project provider tooling (\`gh-axi\` for GitHub, \`bytedcli codebase mr create\` for code.byted.org/GitLab), then append \`done: PR {url}\` or \`done: MR {url}\` to the status file and stop.
+Do NOT run /no-mistakes. The captain reviews and merges the PR/MR; firstmate relays it.
+EOF
+    ;;
+  local-only)
+    cat <<EOF
+# Definition of done
+This project ships **local-only**: no remote, no PR/MR, no pipeline.
+The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR/MR, do NOT merge.
+Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
+Firstmate then reviews your branch diff, the captain approves, and firstmate merges it into local \`main\`.
+EOF
+    ;;
+  *)
+    cat <<EOF
+# Definition of done
+The task is complete only when committed on your branch.
+When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate and ship a PR/MR.
+
+You drive no-mistakes by responding to its gates, not by implementing fixes.
+Follow no-mistakes' own guidance for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
+Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
+
+Two firstmate-specific rules layer on top of that guidance:
+- ask-user findings are not yours to answer: escalate to firstmate (rule 6) and stop.
+  When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
+- Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
+
+After /no-mistakes reports CI green, append \`done: PR {url} checks green\` or \`done: MR {url} checks green\` and stop. You are finished.
+EOF
+    ;;
+esac
+} > "$BRIEF"
 echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"

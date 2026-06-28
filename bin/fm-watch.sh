@@ -278,7 +278,7 @@ while :; do
   # alive. Supervision scripts warn when this goes stale with tasks in flight.
   touch "$STATE/.last-watcher-beat"
 
-  # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
+  # Slow per-task checks (firstmate writes these, e.g. a merged-PR/MR poll).
   # Time-based via .last-check mtime so the cadence survives watcher restarts.
   # Evaluated BEFORE the signal scan: wake() exits the cycle, so a check placed
   # after the signal scan would be starved whenever a chatty sibling crewmate

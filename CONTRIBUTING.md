@@ -42,6 +42,8 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   Each starts with a usage header comment; keep it accurate when you change behavior.
   Test scripts and helpers in `tests/` are plain bash too.
   `shellcheck bin/*.sh tests/*.sh` must pass, and CI enforces it.
+- Review-provider behavior is centralized in `bin/fm-review-provider-lib.sh`.
+  Keep GitHub and code.byted.org/GitLab detection and state lookups there, with tests that fake `gh`/`gh-axi` and `bytedcli` instead of requiring live provider access.
 - Changes to harness adapters (launch templates in `bin/fm-spawn.sh`, facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
 - In Markdown, put each full sentence on its own line.
 
@@ -78,7 +80,8 @@ tests/fm-update.test.sh                   # fast-forward-only self-update, rerea
 tests/fm-secondmate-sync.test.sh          # local-HEAD secondmate sync, no-fetch, bootstrap nudge gating, and spawn hook tests
 tests/fm-secondmate-lifecycle-e2e.test.sh # persistent secondmate routing, seeding, backlog handoff, spawn, recovery, teardown, and FM_HOME flow tests
 tests/fm-secondmate-safety.test.sh        # secondmate home safety, idle charter, handoff validation, and teardown boundary tests
-tests/fm-teardown.test.sh                 # fm-teardown.sh landed-work safety and reminder checks: fork-remote allow, squash/content landings, dirty and unlanded refusals, PR-head metadata, tasks-axi reminder, --force override
+tests/fm-review-provider.test.sh          # review-provider detection and fake GitHub/code.byted.org state lookup tests
+tests/fm-teardown.test.sh                 # fm-teardown.sh landed-work safety and reminder checks: fork-remote allow, squash/content landings, dirty and unlanded refusals, PR/MR-head metadata, tasks-axi reminder, --force override
 tests/fm-crew-state.test.sh               # fm-crew-state.sh current-state reconciliation: run-step authority including closed panes, stale needs-decision/blocked superseded by a resumed run, genuine-parked, cross-branch attribution, pane/status-log fallback, scout skip, torn-down/missing-meta graceful
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]

@@ -62,6 +62,10 @@ As defense in depth for any pane that flag cannot reach, including the captain's
 That styled capture is internal to the boolean detector only.
 `fm-peek` and every other human or LLM-facing capture path stays plain `tmux capture-pane` with no escape codes.
 
+Local fork note: `fm-spawn.sh` keeps the adapter name as `claude` but prefers the captain's `ccc` launcher when it is on `PATH`.
+That launcher performs the proxy preflight and then execs Claude Code in dangerous mode.
+If `ccc` is unavailable, `fm-spawn.sh` falls back to the underlying `claude --dangerously-skip-permissions` command while still bypassing interactive shell aliases through `env`.
+
 ## codex (VERIFIED 2026-06-11, codex-cli 0.139.0)
 
 | Fact | Value |
@@ -116,3 +120,7 @@ The decision persists per path in `~/.pi/agent/trust.json`, so later spawns in t
 `fm-spawn` keeps the turn-end extension in `state/`, outside the worktree, because project-local extension files make the trust gate strictly worse and pollute the project.
 The extension must listen for pi's `turn_end` event, not `agent_end`, so the watcher wakes after each completed turn instead of only when the whole agent run exits.
 Pi sets `PI_CODING_AGENT=true` for its children; this is its harness-detection env marker.
+
+Local fork note: `fm-spawn.sh` keeps the adapter name as `pi` but prefers `$HOME/.pi/agent/pi-with-proxy.sh` when it exists.
+That wrapper starts or reuses the DeepSeek proxy before delegating to `pi`.
+If the wrapper is unavailable, `fm-spawn.sh` falls back to `command pi` with the same positional brief and turn-end extension arguments.

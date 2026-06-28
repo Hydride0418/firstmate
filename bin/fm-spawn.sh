@@ -124,7 +124,7 @@ launch_template() {
     # does NOT suppress the interactive ghost text (verified empirically), so the env
     # var is the correct control. The dim-aware composer reader in fm-tmux-lib.sh is
     # the defense-in-depth backstop for any pane this flag cannot reach.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "$(cat __BRIEF__)"' ;;
+    claude) printf '%s' 'if command -v ccc >/dev/null 2>&1; then env CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false ccc --dangerous "$(cat __BRIEF__)"; else env CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "$(cat __BRIEF__)"; fi' ;;
     codex)
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex --dangerously-bypass-approvals-and-sandbox "$(cat __BRIEF__)"'
@@ -135,9 +135,9 @@ launch_template() {
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode --prompt "$(cat __BRIEF__)"' ;;
     pi)
       if [ "$kind" = secondmate ]; then
-        printf '%s' 'pi "$(cat __BRIEF__)"'
+        printf '%s' 'if [ -x "$HOME/.pi/agent/pi-with-proxy.sh" ]; then "$HOME/.pi/agent/pi-with-proxy.sh" "$(cat __BRIEF__)"; else command pi "$(cat __BRIEF__)"; fi'
       else
-        printf '%s' 'pi -e __PIEXT__ "$(cat __BRIEF__)"'
+        printf '%s' 'if [ -x "$HOME/.pi/agent/pi-with-proxy.sh" ]; then "$HOME/.pi/agent/pi-with-proxy.sh" -e __PIEXT__ "$(cat __BRIEF__)"; else command pi -e __PIEXT__ "$(cat __BRIEF__)"; fi'
       fi
       ;;
     *) return 1 ;;

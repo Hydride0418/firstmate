@@ -3,7 +3,7 @@
 #
 # An X mention that spawned real work is linked to its task by fm-x-link.sh
 # (x_request/x_request_ts in state/<id>.meta). When that task reaches a terminal
-# state (PR merged / scout report / local merge / failed), firstmate composes a
+# state (PR/MR merged / scout report / local merge / failed), firstmate composes a
 # public-safe outcome and posts it here as ONE follow-up, within a 24h window.
 # Past the window the relay would drop a late follow-up, so this skips silently
 # and clears the link. A failed task still warrants an honest follow-up.

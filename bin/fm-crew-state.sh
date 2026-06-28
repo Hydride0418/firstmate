@@ -288,8 +288,8 @@ if [ "$HAVE_RUN" = 1 ]; then
   RUN_DETAIL=""
   if [ -n "$outcome" ]; then
     case "$outcome" in
-      passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
-      checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
+      passed)        RUN_STATE="done"; RUN_DETAIL="run passed: review merged/closed" ;;
+      checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: review ready" ;;
       failed)        RUN_STATE=failed; RUN_DETAIL="run failed" ;;
       cancelled)     RUN_STATE=failed; RUN_DETAIL="run cancelled" ;;
       *)             RUN_STATE=unknown; RUN_DETAIL="outcome: $outcome" ;;

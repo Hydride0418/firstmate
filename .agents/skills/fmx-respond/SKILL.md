@@ -64,7 +64,7 @@ The asker being your own captain (owner-only routing) does **not** relax this: a
 
 Never include, in any form:
 
-- Task ids, branch names, worktree paths, PR/issue numbers, or repo-internal identifiers.
+- Task ids, branch names, worktree paths, PR/MR/issue numbers, or repo-internal identifiers.
 - Tooling/internal vocabulary: crewmate, scout, ship, secondmate, harness names, watcher, heartbeat, brief, teardown, no-mistakes, yolo, delivery modes.
 - Captain-private material: the captain's name, product strategy, unreleased plans, revenue, internal URLs, file contents, or anything the captain has not made public.
 - Secrets of any kind: tokens, keys, credentials, the pairing token, hostnames.
@@ -165,7 +165,7 @@ When an actionable request spawned a task and you linked it (step 2c), the **out
 That post is firstmate's job on the task's completion wake and is governed by AGENTS.md §14; this skill's only follow-up responsibility is linking the task in step 2c.
 For context, the completion path is:
 
-- On a terminal wake (PR merged / scout report / local merge / failed), firstmate checks whether the task is X-linked with `bin/fm-x-followup.sh --check <task-id>` (prints the `request_id` when a follow-up is due; silent when not linked or past the 24h window, pruning an expired link).
+- On a terminal wake (PR/MR merged / scout report / local merge / failed), firstmate checks whether the task is X-linked with `bin/fm-x-followup.sh --check <task-id>` (prints the `request_id` when a follow-up is due; silent when not linked or past the 24h window, pruning an expired link).
 - If due, it composes a short, public-safe outcome ("done, here's the result"; for a failure, an honest "this one didn't pan out") and posts the single follow-up with `bin/fm-x-followup.sh <task-id> --text-file <path>` (or stdin), which posts via the relay's follow-up endpoint and clears the link on success.
 - The follow-up is **one** reply, within 24h, and is held to the exact same public-safety bar as every reply here: outcomes only, no task ids, internals, captain-private material, or secrets. Past the window it is skipped silently and the link is cleared.
 

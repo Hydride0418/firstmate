@@ -61,7 +61,7 @@ a false exit is self-correcting (the captain re-runs `/afk`).
 ## Orthogonal to approval authority
 
 afk changes how aggressively firstmate surfaces things, **not who approves
-what**. "Away" never means "approves more." A PR ready for merge, a
+what**. "Away" never means "approves more." A PR/MR ready for merge, a
 needs-decision finding, or anything destructive still waits for the captain's
 explicit word - the daemon just batches the notification.
 
@@ -134,7 +134,7 @@ the two never run their triage at the same time.
 Classify each wake this way:
 
 - `signal` whose status content has no captain-relevant verb
-  (`done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged`)
+  (`done:|needs-decision:|blocked:|failed:|PR ready|MR ready|checks green|ready in branch|merged`)
   -> self-handle. Captain-relevant verb -> escalate.
 - `check` -> always escalate. Check scripts print only when firstmate should wake.
 - `stale` with a terminal status -> escalate. Non-terminal stale is transient:

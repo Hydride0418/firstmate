@@ -15,8 +15,9 @@
 #
 # The dashboard is intentionally read-only with respect to firstmate operations:
 # it reads state/*.meta, state/*.status, data/backlog.md, and calls
-# bin/fm-crew-state.sh <id> for each task's current state. It does not write
-# state/, touch tmux directly, or interact with watcher/supervision files.
+# bin/fm-crew-state.sh <id> for each task's current state. The served /focus
+# endpoint only selects a tmux window whose target is resolved from state/*.meta;
+# it does not write state/ or interact with watcher/supervision files.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,6 +137,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import urllib.parse
 
 script_dir = pathlib.Path(sys.argv[1])
 fm_root = pathlib.Path(sys.argv[2])
@@ -346,6 +348,7 @@ for task_id in sorted(tasks):
             "last": last,
             "age": task_age(item, meta_path),
             "pr": pr,
+            "focusable": bool(meta.get("window")),
         }
     )
 
@@ -459,6 +462,23 @@ tr:last-child td {{ border-bottom: 0; }}
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
 }}
+.focus-link {{
+  font: inherit;
+}}
+.focus-status {{
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(420px, calc(100vw - 36px));
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  padding: 9px 12px;
+  color: var(--text);
+}}
+.focus-status[data-state="error"] {{
+  border-color: var(--failed);
+}}
 .muted {{ color: var(--muted); }}
 .detail {{
   color: var(--muted);
@@ -556,8 +576,15 @@ if rows:
         last_html = linkify(row["last"]) if row["last"] else '<span class="muted">-</span>'
         mode_html = esc(row["mode"]) if row["mode"] else '<span class="muted">-</span>'
         project_html = esc(row["project"]) if row["project"] else '<span class="muted">-</span>'
+        task_html = esc(row["id"])
+        if row["focusable"]:
+            focus_href = "/focus?id=" + urllib.parse.quote(row["id"], safe="")
+            task_html = (
+                f'<a class="focus-link" href="{esc(focus_href)}" '
+                f'data-focus-id="{esc(row["id"])}">{esc(row["id"])}</a>'
+            )
         print(f"""    <tr>
-      <td class="task-id">{esc(row["id"])}</td>
+      <td class="task-id">{task_html}</td>
       <td>{project_html}</td>
       <td>{esc(row["kind"])}</td>
       <td>{mode_html}</td>
@@ -586,6 +613,47 @@ print('<section class="lists">')
 render_list("Queued", sections["Queued"])
 render_list("Recent Done", sections["Done"], limit=10)
 print("</section>")
+print("""<div class="focus-status" data-focus-status hidden></div>
+<script>
+(() => {
+  const status = document.querySelector("[data-focus-status]");
+  let timer = null;
+
+  function showFocusStatus(message, state) {
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = state;
+    status.hidden = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      status.hidden = true;
+    }, 3500);
+  }
+
+  document.addEventListener("click", async (event) => {
+    const link = event.target.closest("a[data-focus-id]");
+    if (!link) return;
+    event.preventDefault();
+    const taskId = link.dataset.focusId || "task";
+    try {
+      const response = await fetch(link.href, {
+        cache: "no-store",
+        headers: {"Accept": "application/json"},
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (_) {}
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      showFocusStatus(`Focused ${taskId}`, "ok");
+    } catch (error) {
+      showFocusStatus(`Focus failed for ${taskId}: ${error.message}`, "error");
+    }
+  });
+})();
+</script>""")
 print("</main>\n</body>\n</html>")
 PY
 }
@@ -596,12 +664,48 @@ serve_child() {
   exec python3 - "$SCRIPT_PATH" "$FM_ROOT" "$FM_HOME" "$STATE" "$DATA" "$PORT" "$INTERVAL" <<'PY'
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
+import pathlib
+import re
 import subprocess
 import sys
+import urllib.parse
 
 script_path, fm_root, fm_home, state_dir, data_dir, port, interval = sys.argv[1:8]
 port = int(port)
+state_path = pathlib.Path(state_dir)
+
+TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+WINDOW_TARGET_RE = re.compile(r"^[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)?$")
+
+
+def read_keyvals(path):
+    values = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return values
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key] = value
+    return values
+
+
+def known_task_windows():
+    windows = {}
+    if not state_path.exists():
+        return windows
+    for meta_path in sorted(state_path.glob("*.meta")):
+        task_id = meta_path.name[:-5]
+        if not TASK_ID_RE.fullmatch(task_id):
+            continue
+        window = read_keyvals(meta_path).get("window", "").strip()
+        if window:
+            windows[task_id] = window
+    return windows
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -611,7 +715,11 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        if self.path not in ("/", "/index.html"):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/focus":
+            self.handle_focus(parsed.query)
+            return
+        if parsed.path not in ("/", "/index.html"):
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"not found\n")
@@ -651,6 +759,58 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def send_json(self, status, payload):
+        data = json.dumps(payload, sort_keys=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def handle_focus(self, query):
+        params = urllib.parse.parse_qs(query, keep_blank_values=True)
+        values = params.get("id", [])
+        if len(values) != 1 or not values[0]:
+            self.send_json(400, {"ok": False, "error": "missing task id"})
+            return
+        task_id = values[0]
+        if not TASK_ID_RE.fullmatch(task_id):
+            self.send_json(400, {"ok": False, "error": "invalid task id"})
+            return
+        window = known_task_windows().get(task_id)
+        if not window:
+            self.send_json(404, {"ok": False, "error": "unknown task"})
+            return
+        if not WINDOW_TARGET_RE.fullmatch(window):
+            self.send_json(409, {"ok": False, "error": "invalid recorded window target"})
+            return
+        try:
+            result = subprocess.run(
+                ["tmux", "select-window", "-t", window],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "tmux select-window failed").strip()
+                self.send_json(502, {"ok": False, "error": detail})
+                return
+            subprocess.run(
+                ["tmux", "switch-client", "-t", window],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception as exc:
+            self.send_json(502, {"ok": False, "error": str(exc)})
+            return
+        self.send_json(200, {"ok": True, "id": task_id})
 
 
 with ThreadingHTTPServer(("127.0.0.1", port), Handler) as httpd:

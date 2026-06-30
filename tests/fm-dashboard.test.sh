@@ -30,9 +30,13 @@ make_fakebin() {
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
+if [ -n "${FM_FAKE_TMUX_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
+fi
 case "${1:-}" in
   display-message) printf '%%1\n' ;;
   capture-pane) printf 'idle\n> \n' ;;
+  select-window|switch-client) exit 0 ;;
 esac
 exit 0
 SH
@@ -50,6 +54,7 @@ run_dash() {
   shift
   FM_HOME="$home" \
     FM_DASHBOARD_RUNTIME_DIR="$home/.lavish/fm-dashboard" \
+    FM_FAKE_TMUX_LOG="${FM_FAKE_TMUX_LOG:-}" \
     PATH="$FAKEBIN:$PATH" \
     "$DASH" "$@"
 }
@@ -114,6 +119,24 @@ with urllib.request.urlopen(sys.argv[1], timeout=5) as response:
 PY
 }
 
+fetch_url_status() {
+  python3 - "$1" <<'PY'
+import sys
+import urllib.error
+import urllib.request
+
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=5) as response:
+        body = response.read().decode("utf-8")
+        print(f"status={response.status}")
+        print(body)
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8")
+    print(f"status={exc.code}")
+    print(body)
+PY
+}
+
 FAKEBIN=$(make_fakebin "$TMP_ROOT")
 
 test_snapshot_empty_home() {
@@ -135,14 +158,15 @@ test_snapshot_fixture_home() {
   out=$(run_dash "$home" snapshot)
   after=$(find "$home/state" -type f | sort)
   [ "$before" = "$after" ] || fail "snapshot wrote to state/"
-  assert_contains "$out" '<td class="task-id">alpha</td>' "snapshot renders alpha row"
+  assert_contains "$out" '<td class="task-id"><a class="focus-link" href="/focus?id=alpha" data-focus-id="alpha">alpha</a></td>' "snapshot renders alpha focus link"
   assert_contains "$out" '<span class="badge badge-working">working</span>' "snapshot uses fm-crew-state working state"
-  assert_contains "$out" '<td class="task-id">beta</td>' "snapshot renders beta row"
+  assert_contains "$out" 'data-focus-id="beta">beta</a>' "snapshot renders beta focus link"
   assert_contains "$out" '<span class="badge badge-blocked">blocked</span>' "snapshot uses fm-crew-state blocked state"
   assert_contains "$out" 'working: implementing dashboard' "snapshot shows the last status event"
   assert_contains "$out" '<a href="https://github.com/example/firstmate/pull/9">PR/MR</a>' "snapshot links review URL from meta"
   assert_contains "$out" 'gamma - add polish' "snapshot renders queued backlog"
   assert_contains "$out" '<a href="https://github.com/example/firstmate/pull/1">https://github.com/example/firstmate/pull/1</a>' "snapshot linkifies done URLs"
+  assert_contains "$out" 'fetch(link.href' "snapshot includes focus fetch handler"
   pass "snapshot renders fixture tasks, backlog, review links, and stays read-only"
 }
 
@@ -157,7 +181,8 @@ test_serve_and_stop() {
   assert_contains "$out" "http://127.0.0.1:$port/" "serve prints the local URL"
   body=$(fetch_url "http://127.0.0.1:$port/")
   assert_contains "$body" 'http-equiv="refresh" content="1"' "served page auto-refreshes at the requested interval"
-  assert_contains "$body" '<td class="task-id">alpha</td>' "served page contains live snapshot content"
+  assert_contains "$body" 'data-focus-id="alpha">alpha</a>' "served page contains clickable live snapshot content"
+  assert_contains "$body" 'data-focus-status' "served page contains focus status surface"
   pidfile="$home/.lavish/fm-dashboard/fm-dashboard-$port.pid"
   assert_present "$pidfile" "serve writes its pid file under the dashboard runtime dir"
   out=$(run_dash "$home" stop --port "$port")
@@ -168,6 +193,53 @@ test_serve_and_stop() {
   pass "serve starts, renders, and stop cleans up"
 }
 
+test_focus_endpoint() {
+  local home port out body log calls before after injected invalid
+  home="$TMP_ROOT/focus-home"
+  write_fixture_home "$home"
+  port=$(free_port)
+  log="$home/tmux.log"
+  : > "$log"
+  SERVE_HOME="$home"
+  SERVE_PORT="$port"
+  FM_FAKE_TMUX_LOG="$log"
+  out=$(run_dash "$home" serve --port "$port" --interval 60)
+  assert_contains "$out" "http://127.0.0.1:$port/" "focus test serve prints the local URL"
+
+  body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=alpha")
+  assert_contains "$body" "status=200" "focus returns success for a known task id"
+  assert_contains "$body" '"ok": true' "focus success body is JSON"
+  calls=$(cat "$log")
+  assert_contains "$calls" "select-window -t fm-alpha" "focus selects the recorded tmux window"
+  assert_contains "$calls" "switch-client -t fm-alpha" "focus asks tmux clients to switch when possible"
+
+  before=$(wc -l < "$log" | tr -d ' ')
+  body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=missing-task")
+  assert_contains "$body" "status=404" "focus rejects an unknown task id"
+  after=$(wc -l < "$log" | tr -d ' ')
+  [ "$before" = "$after" ] || fail "unknown task id should not invoke tmux"
+
+  injected=$(fetch_url_status "http://127.0.0.1:$port/focus?id=alpha%3Btouch%20$home/pwned")
+  assert_contains "$injected" "status=400" "focus rejects an injected task id"
+  after=$(wc -l < "$log" | tr -d ' ')
+  [ "$before" = "$after" ] || fail "injected task id should not invoke tmux"
+  [ ! -e "$home/pwned" ] || fail "injected task id created a file"
+
+  fm_write_meta "$home/state/evil.meta" "window=fm-evil;touch $home/pwned"
+  invalid=$(fetch_url_status "http://127.0.0.1:$port/focus?id=evil")
+  assert_contains "$invalid" "status=409" "focus rejects an unsafe recorded window target"
+  after=$(wc -l < "$log" | tr -d ' ')
+  [ "$before" = "$after" ] || fail "unsafe recorded window target should not invoke tmux"
+  [ ! -e "$home/pwned" ] || fail "unsafe recorded window target created a file"
+
+  out=$(run_dash "$home" stop --port "$port")
+  assert_contains "$out" "stopped port $port" "focus test stop reports the dashboard server stopped"
+  SERVE_HOME=""
+  SERVE_PORT=""
+  pass "focus endpoint resolves windows from known task metadata and rejects unsafe input"
+}
+
 test_snapshot_empty_home
 test_snapshot_fixture_home
 test_serve_and_stop
+test_focus_endpoint

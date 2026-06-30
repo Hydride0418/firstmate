@@ -71,6 +71,7 @@ README.md            public overview and development notes
 .claude/skills       symlink to .agents/skills for claude compatibility
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
+.lavish/fm-dashboard/ local dashboard pid/log runtime for bin/fm-dashboard.sh serve; LOCAL, gitignored
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
@@ -189,6 +190,8 @@ Reconcile reality with your records before doing anything else:
 
 A firstmate restart must be a non-event.
 All truth lives in tmux, state files, data/backlog.md, data/secondmates.md, persistent secondmate homes, and treehouse; your conversation memory is a cache.
+For passive browser visibility, `bin/fm-dashboard.sh snapshot` renders this home's fleet and `bin/fm-dashboard.sh serve` serves it locally with auto-refresh.
+The dashboard reads `state/*.meta`, `state/*.status`, `data/backlog.md`, and `bin/fm-crew-state.sh <id>` for each current state; its server runtime belongs under `.lavish/fm-dashboard/`, not `state/`.
 
 ## 6. Project management
 

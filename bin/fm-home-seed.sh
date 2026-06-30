@@ -648,7 +648,7 @@ seed_return_treehouse_home() {
 seed_remove_created_home() {
   local home=$1 abs_home
   abs_home=$(seed_rollback_target "$home" "created home") || return 0
-  rm -rf -- "$abs_home" 2>/dev/null || true
+  seed_rm_rf "$abs_home"
 }
 
 seed_project_rollback_target() {
@@ -670,7 +670,19 @@ seed_project_rollback_target() {
 seed_remove_created_project() {
   local project_path=$1 abs_project
   abs_project=$(seed_project_rollback_target "$project_path") || return 0
-  rm -rf -- "$abs_project" 2>/dev/null || true
+  seed_rm_rf "$abs_project"
+}
+
+seed_rm_rf() {
+  local target=$1 attempts=5
+  rm -rf -- "$target" 2>/dev/null || true
+  [ ! -e "$target" ] && return 0
+  chmod -R u+rwX "$target" 2>/dev/null || true
+  while [ "$attempts" -gt 0 ] && [ -e "$target" ]; do
+    sleep 0.1
+    rm -rf -- "$target" 2>/dev/null || true
+    attempts=$((attempts - 1))
+  done
 }
 
 seed_project_was_created() {

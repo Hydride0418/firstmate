@@ -20,6 +20,7 @@ fm_git_identity fmtest fmtest@example.invalid
 
 TMP_ROOT=$(fm_test_tmproot fm-fleet-sync-tests)
 HOME_N=0
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 # --- fixtures ---------------------------------------------------------------
 
@@ -72,6 +73,40 @@ advance_origin() {
 }
 
 head_sha() { git -C "$1" rev-parse HEAD; }
+
+# Bootstrap relay tests are about fleet-sync output, not the host's installed
+# firstmate toolchain. Keep all required probes satisfied so MISSING/NEEDS_GH_AUTH
+# lines cannot depend on the test runner's PATH.
+make_bootstrap_fake_toolchain() {
+  local dir=$1 fakebin
+  fakebin=$(fm_fakebin "$dir")
+  fm_fake_exit0 "$fakebin" tmux node gh-axi chrome-devtools-axi lavish-axi
+  cat > "$fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/gh"
+  cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
+  printf '%s\n' 'Usage: treehouse get [--lease]'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/treehouse"
+  cat > "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf '%s\n' 'no-mistakes version v1.31.2 (fake)'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/no-mistakes"
+  printf '%s\n' "$fakebin"
+}
 
 # run_sync <home> [args...]: run fleet-sync against an isolated home, stdout only.
 run_sync() {
@@ -273,7 +308,7 @@ test_whole_fleet_form() {
 }
 
 test_bootstrap_relays_recovered_and_stuck() {
-  local home stuck rec out
+  local home stuck rec fakebin out
   home=$(new_home)
   # A clone we will leave STUCK (dirty), and one that self-heals (detached-clean-ancestor).
   stuck=$(build_pair "$home" stuck-clone)
@@ -285,7 +320,8 @@ test_bootstrap_relays_recovered_and_stuck() {
 
   # Full bootstrap: no state/ dir -> secondmate sync no-ops; no .env -> X mode off.
   # We only assert the fleet-sync relay lines; other detect lines are irrelevant.
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  fakebin=$(make_bootstrap_fake_toolchain "$home")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_contains "$out" "FLEET_SYNC: stuck-clone: STUCK:" "bootstrap relays the STUCK outcome"
   assert_contains "$out" "FLEET_SYNC: rec-clone: recovered:" "bootstrap relays the recovered outcome"

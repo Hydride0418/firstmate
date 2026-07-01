@@ -249,13 +249,21 @@ test_snapshot_meta_without_backlog_line() {
   pass "snapshot handles meta-only in-flight tasks without a backlog summary"
 }
 
-test_snapshot_legacy_meta_without_birthtime_uses_since_then_unknown() {
-  local home out since no_birthtime_py
+test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown() {
+  local home out since no_birthtime_py unknown_ages
   home="$TMP_ROOT/legacy-meta-home"
   since=$(seconds_ago_iso 90000)
   no_birthtime_py=$(make_no_birthtime_pythonpath "$home")
   make_home "$home"
-  mkdir -p "$home/wt-legacy-since" "$home/wt-legacy-orphan"
+  mkdir -p "$home/wt-legacy-date-only" "$home/wt-legacy-since" "$home/wt-legacy-orphan"
+  fm_write_meta "$home/state/legacy-date-only.meta" \
+    "window=fm-legacy-date-only" \
+    "worktree=$home/wt-legacy-date-only" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
   fm_write_meta "$home/state/legacy-since.meta" \
     "window=fm-legacy-since" \
     "worktree=$home/wt-legacy-since" \
@@ -274,15 +282,18 @@ test_snapshot_legacy_meta_without_birthtime_uses_since_then_unknown() {
     "yolo=off"
   cat > "$home/data/backlog.md" <<EOF
 ## In flight
+- [ ] legacy-date-only - old date-only task (repo: firstmate, since 1970-01-01)
 - [ ] legacy-since - old active task (repo: firstmate, since $since)
 EOF
 
   out=$(FM_TEST_PYTHONPATH="$no_birthtime_py" run_dash "$home" snapshot)
 
+  assert_contains "$out" 'data-focus-id="legacy-date-only">legacy-date-only</a>' "snapshot renders legacy meta task with date-only backlog"
   assert_contains "$out" 'data-focus-id="legacy-since">legacy-since</a>' "snapshot renders legacy meta task with backlog"
   assert_contains "$out" 'data-focus-id="legacy-orphan">legacy-orphan</a>' "snapshot renders legacy meta task without backlog"
   assert_contains "$out" '<td>1d 1h</td>' "legacy meta without birthtime falls back to backlog since"
-  assert_contains "$out" '<td>unknown</td>' "legacy meta without birthtime and backlog since has unknown age"
+  unknown_ages=$(printf '%s' "$out" | grep -o '<td>unknown</td>' | wc -l | tr -d ' ')
+  [ "$unknown_ages" = "2" ] || fail "legacy meta with date-only or missing backlog since has unknown age"
   pass "snapshot handles legacy meta age fallback without ctime"
 }
 
@@ -358,6 +369,6 @@ test_focus_endpoint() {
 test_snapshot_empty_home
 test_snapshot_fixture_home
 test_snapshot_meta_without_backlog_line
-test_snapshot_legacy_meta_without_birthtime_uses_since_then_unknown
+test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown
 test_serve_and_stop
 test_focus_endpoint

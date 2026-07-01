@@ -20,7 +20,7 @@
 # it does not write state/ or interact with watcher/supervision files.
 # In-flight rows show the backlog summary beneath the task id when present,
 # without the trailing repo/since metadata. Age prefers spawned=<epoch> from
-# meta, falls back to legacy meta creation time, then backlog since.
+# meta, falls back to legacy meta creation time, then time-precise backlog since.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -276,9 +276,9 @@ def parse_since(value):
         return None
     text = value.strip()
     text = re.sub(r"\s+", " ", text)
-    candidates = [text, text.replace(" ", "T", 1)]
     if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
-        candidates.append(text + "T00:00:00")
+        return None
+    candidates = [text, text.replace(" ", "T", 1)]
     for candidate in candidates:
         try:
             dt = _dt.datetime.fromisoformat(candidate)

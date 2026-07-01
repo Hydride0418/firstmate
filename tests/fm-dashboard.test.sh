@@ -34,13 +34,35 @@ if [ -n "${FM_FAKE_TMUX_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
 fi
 case "${1:-}" in
-  display-message) printf '%%1\n' ;;
+  display-message)
+    case "$*" in
+      *'#{session_name}'*) printf '%s\n' "${FM_FAKE_TMUX_SESSION:-firstmate}" ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
   capture-pane) printf 'idle\n> \n' ;;
+  list-clients)
+    clients=${FM_FAKE_TMUX_CLIENTS:-$'/dev/ttys001\tfirstmate'}
+    if [ "$clients" = "none" ]; then
+      echo "no attached clients" >&2
+      exit 1
+    fi
+    printf '%b\n' "$clients"
+    ;;
   select-window|switch-client) exit 0 ;;
 esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  cat > "$fb/osascript" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FM_FAKE_OSASCRIPT_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_OSASCRIPT_LOG"
+fi
+exit "${FM_FAKE_OSASCRIPT_EXIT:-0}"
+SH
+  chmod +x "$fb/osascript"
   printf '%s\n' "$fb"
 }
 
@@ -55,6 +77,9 @@ run_dash() {
   FM_HOME="$home" \
     FM_DASHBOARD_RUNTIME_DIR="$home/.lavish/fm-dashboard" \
     FM_FAKE_TMUX_LOG="${FM_FAKE_TMUX_LOG:-}" \
+    FM_FAKE_TMUX_CLIENTS="${FM_FAKE_TMUX_CLIENTS:-}" \
+    FM_FAKE_OSASCRIPT_LOG="${FM_FAKE_OSASCRIPT_LOG:-}" \
+    FM_FAKE_OSASCRIPT_EXIT="${FM_FAKE_OSASCRIPT_EXIT:-0}" \
     PYTHONPATH="${FM_TEST_PYTHONPATH:-${PYTHONPATH:-}}" \
     PATH="$FAKEBIN:$PATH" \
     "$DASH" "$@"
@@ -184,6 +209,18 @@ def stat_without_birthtime(self, *args, **kwargs):
 
 
 pathlib.Path.stat = stat_without_birthtime
+PY
+  printf '%s\n' "$py"
+}
+
+make_platform_pythonpath() {
+  local dir=$1 system=$2 py
+  py="$dir/platform-$system-pythonpath"
+  mkdir -p "$py"
+  cat > "$py/sitecustomize.py" <<PY
+import platform
+
+platform.system = lambda: "$system"
 PY
   printf '%s\n' "$py"
 }
@@ -355,16 +392,18 @@ test_serve_and_stop() {
 }
 
 test_focus_endpoint() {
-  local home port out body log calls before after injected invalid
+  local home port out body log calls before after injected invalid osascript_log darwin_py osascript_calls
   home="$TMP_ROOT/focus-home"
   write_fixture_home "$home"
+  darwin_py=$(make_platform_pythonpath "$home" Darwin)
   port=$(free_port)
   log="$home/tmux.log"
+  osascript_log="$home/osascript.log"
   : > "$log"
+  : > "$osascript_log"
   SERVE_HOME="$home"
   SERVE_PORT="$port"
-  FM_FAKE_TMUX_LOG="$log"
-  out=$(run_dash "$home" serve --port "$port" --interval 60)
+  out=$(FM_TEST_PYTHONPATH="$darwin_py" FM_FAKE_TMUX_LOG="$log" FM_FAKE_OSASCRIPT_LOG="$osascript_log" run_dash "$home" serve --port "$port" --interval 60)
   assert_contains "$out" "http://127.0.0.1:$port/" "focus test serve prints the local URL"
 
   body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=alpha")
@@ -372,7 +411,9 @@ test_focus_endpoint() {
   assert_contains "$body" '"ok": true' "focus success body is JSON"
   calls=$(cat "$log")
   assert_contains "$calls" "select-window -t fm-alpha" "focus selects the recorded tmux window"
-  assert_contains "$calls" "switch-client -t fm-alpha" "focus asks tmux clients to switch when possible"
+  assert_contains "$calls" "switch-client -c /dev/ttys001 -t firstmate" "focus switches an attached tmux client to the target session"
+  osascript_calls=$(cat "$osascript_log")
+  assert_contains "$osascript_calls" '-e tell application "iTerm" to activate' "focus activates iTerm on Darwin"
 
   before=$(wc -l < "$log" | tr -d ' ')
   body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=missing-task")
@@ -400,6 +441,62 @@ test_focus_endpoint() {
   pass "focus endpoint resolves windows from known task metadata and rejects unsafe input"
 }
 
+test_focus_reports_no_attached_clients() {
+  local home port out body log calls
+  home="$TMP_ROOT/focus-no-client-home"
+  write_fixture_home "$home"
+  port=$(free_port)
+  log="$home/tmux.log"
+  : > "$log"
+  SERVE_HOME="$home"
+  SERVE_PORT="$port"
+  out=$(FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CLIENTS=none run_dash "$home" serve --port "$port" --interval 60)
+  assert_contains "$out" "http://127.0.0.1:$port/" "focus no-client test serve prints the local URL"
+
+  body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=alpha")
+  assert_contains "$body" "status=409" "focus reports no attached tmux clients as a real error"
+  assert_contains "$body" "No attached tmux client" "focus no-client error tells the operator how to recover"
+  calls=$(cat "$log")
+  assert_contains "$calls" "select-window -t fm-alpha" "focus still selects the recorded window before reporting no attached client"
+  assert_contains "$calls" "list-clients -F" "focus checks for attached tmux clients"
+  assert_not_contains "$calls" "switch-client" "focus does not pretend to switch without an attached client"
+
+  out=$(run_dash "$home" stop --port "$port")
+  assert_contains "$out" "stopped port $port" "focus no-client test stop reports the dashboard server stopped"
+  SERVE_HOME=""
+  SERVE_PORT=""
+  pass "focus endpoint reports no attached tmux client instead of returning a false success"
+}
+
+test_focus_skips_terminal_activation_off_darwin() {
+  local home port out body log osascript_log linux_py calls
+  home="$TMP_ROOT/focus-linux-home"
+  write_fixture_home "$home"
+  linux_py=$(make_platform_pythonpath "$home" Linux)
+  port=$(free_port)
+  log="$home/tmux.log"
+  osascript_log="$home/osascript.log"
+  : > "$log"
+  : > "$osascript_log"
+  SERVE_HOME="$home"
+  SERVE_PORT="$port"
+  out=$(FM_TEST_PYTHONPATH="$linux_py" FM_FAKE_TMUX_LOG="$log" FM_FAKE_OSASCRIPT_LOG="$osascript_log" run_dash "$home" serve --port "$port" --interval 60)
+  assert_contains "$out" "http://127.0.0.1:$port/" "focus non-Darwin test serve prints the local URL"
+
+  body=$(fetch_url_status "http://127.0.0.1:$port/focus?id=alpha")
+  assert_contains "$body" "status=200" "focus succeeds off Darwin"
+  assert_contains "$body" '"ok": true' "focus non-Darwin success body is JSON"
+  calls=$(cat "$log")
+  assert_contains "$calls" "switch-client -c /dev/ttys001 -t firstmate" "focus still switches tmux clients off Darwin"
+  [ ! -s "$osascript_log" ] || fail "focus should not invoke osascript off Darwin"
+
+  out=$(run_dash "$home" stop --port "$port")
+  assert_contains "$out" "stopped port $port" "focus non-Darwin test stop reports the dashboard server stopped"
+  SERVE_HOME=""
+  SERVE_PORT=""
+  pass "focus endpoint degrades gracefully without terminal activation off Darwin"
+}
+
 test_snapshot_empty_home
 test_snapshot_fixture_home
 test_snapshot_meta_without_backlog_line
@@ -407,3 +504,5 @@ test_snapshot_bad_spawned_metadata_does_not_crash
 test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown
 test_serve_and_stop
 test_focus_endpoint
+test_focus_reports_no_attached_clients
+test_focus_skips_terminal_activation_off_darwin

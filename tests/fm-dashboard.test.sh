@@ -249,6 +249,40 @@ test_snapshot_meta_without_backlog_line() {
   pass "snapshot handles meta-only in-flight tasks without a backlog summary"
 }
 
+test_snapshot_bad_spawned_metadata_does_not_crash() {
+  local home out no_birthtime_py unknown_ages
+  home="$TMP_ROOT/bad-spawned-home"
+  make_home "$home"
+  no_birthtime_py=$(make_no_birthtime_pythonpath "$home")
+  mkdir -p "$home/wt-bad-inf" "$home/wt-bad-nan"
+  fm_write_meta "$home/state/bad-inf.meta" \
+    "window=fm-bad-inf" \
+    "spawned=inf" \
+    "worktree=$home/wt-bad-inf" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/bad-nan.meta" \
+    "window=fm-bad-nan" \
+    "spawned=nan" \
+    "worktree=$home/wt-bad-nan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+
+  out=$(FM_TEST_PYTHONPATH="$no_birthtime_py" run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="bad-inf">bad-inf</a>' "snapshot renders task with infinite spawned metadata"
+  assert_contains "$out" 'data-focus-id="bad-nan">bad-nan</a>' "snapshot renders task with nan spawned metadata"
+  unknown_ages=$(printf '%s' "$out" | grep -o '<td>unknown</td>' | wc -l | tr -d ' ')
+  [ "$unknown_ages" = "2" ] || fail "invalid spawned metadata should fall back without crashing"
+  pass "snapshot rejects non-finite spawned metadata without crashing"
+}
+
 test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown() {
   local home out since no_birthtime_py unknown_ages
   home="$TMP_ROOT/legacy-meta-home"
@@ -369,6 +403,7 @@ test_focus_endpoint() {
 test_snapshot_empty_home
 test_snapshot_fixture_home
 test_snapshot_meta_without_backlog_line
+test_snapshot_bad_spawned_metadata_does_not_crash
 test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown
 test_serve_and_stop
 test_focus_endpoint

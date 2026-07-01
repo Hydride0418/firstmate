@@ -135,6 +135,7 @@ snapshot() {
   python3 - "$SCRIPT_DIR" "$FM_ROOT" "$FM_HOME" "$STATE" "$DATA" <<'PY'
 import datetime as _dt
 import html
+import math
 import os
 import pathlib
 import re
@@ -311,7 +312,7 @@ def parse_epoch(value):
         epoch = float(value.strip())
     except (TypeError, ValueError):
         return None
-    if epoch < 0:
+    if not math.isfinite(epoch) or epoch < 0:
         return None
     return epoch
 

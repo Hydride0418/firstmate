@@ -18,6 +18,9 @@
 # bin/fm-crew-state.sh <id> for each task's current state. The served /focus
 # endpoint only selects a tmux window whose target is resolved from state/*.meta;
 # it does not write state/ or interact with watcher/supervision files.
+# In-flight rows show the backlog summary beneath the task id when present,
+# without the trailing repo/since metadata. Age prefers spawned=<epoch> from
+# meta, falls back to legacy meta creation time, then backlog since.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

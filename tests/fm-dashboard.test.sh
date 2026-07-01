@@ -55,6 +55,7 @@ run_dash() {
   FM_HOME="$home" \
     FM_DASHBOARD_RUNTIME_DIR="$home/.lavish/fm-dashboard" \
     FM_FAKE_TMUX_LOG="${FM_FAKE_TMUX_LOG:-}" \
+    PYTHONPATH="${FM_TEST_PYTHONPATH:-${PYTHONPATH:-}}" \
     PATH="$FAKEBIN:$PATH" \
     "$DASH" "$@"
 }
@@ -139,6 +140,54 @@ except urllib.error.HTTPError as exc:
 PY
 }
 
+seconds_ago_iso() {
+  python3 - "$1" <<'PY'
+import datetime as dt
+import sys
+
+then = dt.datetime.now().astimezone() - dt.timedelta(seconds=int(sys.argv[1]))
+print(then.strftime("%Y-%m-%d %H:%M:%S"))
+PY
+}
+
+make_no_birthtime_pythonpath() {
+  local dir=$1 py
+  py="$dir/no-birthtime-pythonpath"
+  mkdir -p "$py"
+  cat > "$py/sitecustomize.py" <<'PY'
+import pathlib
+
+_real_path_stat = pathlib.Path.stat
+
+
+class StatWithoutBirthtime:
+    def __init__(self, stat):
+        self._stat = stat
+
+    def __getattr__(self, name):
+        if name == "st_birthtime":
+            raise AttributeError(name)
+        return getattr(self._stat, name)
+
+    def __getitem__(self, index):
+        return self._stat[index]
+
+    def __iter__(self):
+        return iter(self._stat)
+
+    def __len__(self):
+        return len(self._stat)
+
+
+def stat_without_birthtime(self, *args, **kwargs):
+    return StatWithoutBirthtime(_real_path_stat(self, *args, **kwargs))
+
+
+pathlib.Path.stat = stat_without_birthtime
+PY
+  printf '%s\n' "$py"
+}
+
 FAKEBIN=$(make_fakebin "$TMP_ROOT")
 
 test_snapshot_empty_home() {
@@ -198,6 +247,43 @@ test_snapshot_meta_without_backlog_line() {
   assert_not_contains "$out" '<div class="detail task-summary">' "snapshot omits a summary when no backlog in-flight item exists"
   assert_contains "$out" '<td>1d 1h</td>' "snapshot computes meta-only task age from spawned epoch"
   pass "snapshot handles meta-only in-flight tasks without a backlog summary"
+}
+
+test_snapshot_legacy_meta_without_birthtime_uses_since_then_unknown() {
+  local home out since no_birthtime_py
+  home="$TMP_ROOT/legacy-meta-home"
+  since=$(seconds_ago_iso 90000)
+  no_birthtime_py=$(make_no_birthtime_pythonpath "$home")
+  make_home "$home"
+  mkdir -p "$home/wt-legacy-since" "$home/wt-legacy-orphan"
+  fm_write_meta "$home/state/legacy-since.meta" \
+    "window=fm-legacy-since" \
+    "worktree=$home/wt-legacy-since" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/legacy-orphan.meta" \
+    "window=fm-legacy-orphan" \
+    "worktree=$home/wt-legacy-orphan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  cat > "$home/data/backlog.md" <<EOF
+## In flight
+- [ ] legacy-since - old active task (repo: firstmate, since $since)
+EOF
+
+  out=$(FM_TEST_PYTHONPATH="$no_birthtime_py" run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="legacy-since">legacy-since</a>' "snapshot renders legacy meta task with backlog"
+  assert_contains "$out" 'data-focus-id="legacy-orphan">legacy-orphan</a>' "snapshot renders legacy meta task without backlog"
+  assert_contains "$out" '<td>1d 1h</td>' "legacy meta without birthtime falls back to backlog since"
+  assert_contains "$out" '<td>unknown</td>' "legacy meta without birthtime and backlog since has unknown age"
+  pass "snapshot handles legacy meta age fallback without ctime"
 }
 
 test_serve_and_stop() {
@@ -272,5 +358,6 @@ test_focus_endpoint() {
 test_snapshot_empty_home
 test_snapshot_fixture_home
 test_snapshot_meta_without_backlog_line
+test_snapshot_legacy_meta_without_birthtime_uses_since_then_unknown
 test_serve_and_stop
 test_focus_endpoint

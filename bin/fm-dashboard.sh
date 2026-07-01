@@ -318,10 +318,9 @@ def meta_created_timestamp(meta_path):
         stat = meta_path.stat()
     except OSError:
         return None
-    for attr in ("st_birthtime", "st_ctime"):
-        epoch = getattr(stat, attr, None)
-        if epoch and epoch > 0:
-            return epoch
+    epoch = getattr(stat, "st_birthtime", None)
+    if epoch and epoch > 0:
+        return epoch
     return None
 
 

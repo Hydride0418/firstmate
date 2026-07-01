@@ -49,6 +49,13 @@ Ship briefs also tell the crewmate to verify `pwd -P` and `git rev-parse --show-
 
 Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks investigate, plan, reproduce bugs, or audit, then leave a report at `data/<id>/report.md` and never push.
 
+## Browser dashboard
+
+`bin/fm-dashboard.sh snapshot` renders a read-only HTML view for one `FM_HOME`, and `serve` refreshes it locally without writing fleet state.
+It reads `state/*.meta`, `state/*.status`, `data/backlog.md`, and `bin/fm-crew-state.sh <id>`, so meta-only live tasks still render even when no backlog row is available.
+In-flight task cells show the backlog summary beneath the task id when one exists, stripping trailing repo/since metadata from the displayed summary.
+Age uses `spawned=<epoch>` recorded by `fm-spawn.sh`, then legacy meta creation time, then a time-precise backlog `since`; date-only backlog values are treated as unknown instead of local midnight when that fallback is needed.
+
 ## Optional secondmates
 
 `data/secondmates.md` records persistent domain supervisors with natural-language scopes, project clone lists, and home paths.

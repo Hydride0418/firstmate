@@ -41,7 +41,7 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 
 - **One liaison** - you talk only to the first mate; it dispatches, supervises, escalates only real decisions, and reports plain outcomes.
 - **A visible crew** - every crewmate works in its own tmux window you can watch or type into; the first mate reconciles.
-- **A browser dashboard** - `bin/fm-dashboard.sh serve` exposes a local auto-refreshing view of in-flight, queued, and recently done work for the current `FM_HOME`.
+- **A browser dashboard** - `bin/fm-dashboard.sh serve` exposes a local auto-refreshing view of in-flight work with backlog summaries and runtime age, plus queued and recently done work for the current `FM_HOME`.
 - **Disposable worktrees** - each task runs in a clean [treehouse](https://github.com/kunchenguid/treehouse) git worktree, so parallel work on one repo never collides.
 - **Two task shapes** - ship tasks deliver a change; scout tasks investigate, plan, reproduce, or audit and leave a report.
 - **Explicit project modes** - each project ships via `no-mistakes`, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.

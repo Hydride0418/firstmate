@@ -721,6 +721,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import pathlib
+import platform
 import re
 import subprocess
 import sys
@@ -760,6 +761,75 @@ def known_task_windows():
         if window:
             windows[task_id] = window
     return windows
+
+
+def run_tmux(args):
+    return subprocess.run(
+        ["tmux", *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+
+def command_detail(result, fallback):
+    return (result.stderr or result.stdout or fallback).strip()
+
+
+def attached_tmux_clients():
+    result = run_tmux(["list-clients", "-F", "#{client_tty}\t#{session_name}"])
+    if result.returncode != 0:
+        return []
+    clients = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) == 2 and parts[0] and parts[1]:
+            clients.append({"client": parts[0], "session": parts[1]})
+    return clients
+
+
+def activate_terminal_app():
+    if platform.system() != "Darwin":
+        return None
+    terminal_app = os.environ.get("FM_DASHBOARD_TERMINAL_APP") or "iTerm"
+    app_literal = '"' + terminal_app.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    result = subprocess.run(
+        ["osascript", "-e", f"tell application {app_literal} to activate"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if result.returncode != 0:
+        return command_detail(result, f"failed to activate {terminal_app}")
+    return None
+
+
+def focus_tmux_window(window):
+    result = run_tmux(["select-window", "-t", window])
+    if result.returncode != 0:
+        return command_detail(result, "tmux select-window failed")
+
+    result = run_tmux(["display-message", "-p", "-t", window, "#{session_name}"])
+    if result.returncode != 0:
+        return command_detail(result, "tmux could not resolve target session")
+    target_session = result.stdout.strip()
+    if not target_session:
+        return "tmux could not resolve target session"
+
+    clients = attached_tmux_clients()
+    if not clients:
+        return "No attached tmux client; attach a terminal to the firstmate tmux session first."
+
+    target_client = next((c for c in clients if c["session"] == target_session), clients[0])
+    result = run_tmux(["switch-client", "-c", target_client["client"], "-t", target_session])
+    if result.returncode != 0:
+        return command_detail(result, "tmux switch-client failed")
+
+    return activate_terminal_app()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -841,28 +911,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(409, {"ok": False, "error": "invalid recorded window target"})
             return
         try:
-            result = subprocess.run(
-                ["tmux", "select-window", "-t", window],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            if result.returncode != 0:
-                detail = (result.stderr or result.stdout or "tmux select-window failed").strip()
-                self.send_json(502, {"ok": False, "error": detail})
-                return
-            subprocess.run(
-                ["tmux", "switch-client", "-t", window],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=5,
-                check=False,
-            )
+            error = focus_tmux_window(window)
         except Exception as exc:
             self.send_json(502, {"ok": False, "error": str(exc)})
+            return
+        if error:
+            status = 409 if error.startswith("No attached tmux client;") else 502
+            self.send_json(status, {"ok": False, "error": error})
             return
         self.send_json(200, {"ok": True, "id": task_id})
 

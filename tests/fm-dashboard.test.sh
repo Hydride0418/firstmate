@@ -60,11 +60,13 @@ run_dash() {
 }
 
 write_fixture_home() {
-  local home=$1
+  local home=$1 spawned
+  spawned=$(( $(date +%s) - 90000 ))
   make_home "$home"
   mkdir -p "$home/wt-alpha" "$home/wt-beta"
   fm_write_meta "$home/state/alpha.meta" \
     "window=fm-alpha" \
+    "spawned=$spawned" \
     "worktree=$home/wt-alpha" \
     "project=firstmate" \
     "harness=codex" \
@@ -90,7 +92,7 @@ blocked: waiting on fixture
 EOF
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
-- [ ] alpha - build dashboard (repo: firstmate, since 2026-06-30 00:00)
+- [ ] alpha - [ship/direct-PR] build dashboard copy (repo: firstmate, since 1970-01-01)
 - **beta** - investigate state display (repo: firstmate, since 2026-06-29)
 
 ## Queued
@@ -158,7 +160,11 @@ test_snapshot_fixture_home() {
   out=$(run_dash "$home" snapshot)
   after=$(find "$home/state" -type f | sort)
   [ "$before" = "$after" ] || fail "snapshot wrote to state/"
-  assert_contains "$out" '<td class="task-id"><a class="focus-link" href="/focus?id=alpha" data-focus-id="alpha">alpha</a></td>' "snapshot renders alpha focus link"
+  assert_contains "$out" 'data-focus-id="alpha">alpha</a>' "snapshot renders alpha focus link"
+  assert_contains "$out" '<div class="detail task-summary">[ship/direct-PR] build dashboard copy</div>' "snapshot renders the in-flight task summary"
+  assert_not_contains "$out" 'build dashboard copy (repo: firstmate, since 1970-01-01)' "snapshot omits redundant repo/since trailer from the task summary"
+  assert_contains "$out" '<div class="detail task-summary">investigate state display</div>' "snapshot renders backlog summary for bold task ids"
+  assert_contains "$out" '<td>1d 1h</td>' "snapshot computes age from spawned epoch instead of backlog date"
   assert_contains "$out" '<span class="badge badge-working">working</span>' "snapshot uses fm-crew-state working state"
   assert_contains "$out" 'data-focus-id="beta">beta</a>' "snapshot renders beta focus link"
   assert_contains "$out" '<span class="badge badge-blocked">blocked</span>' "snapshot uses fm-crew-state blocked state"
@@ -168,6 +174,30 @@ test_snapshot_fixture_home() {
   assert_contains "$out" '<a href="https://github.com/example/firstmate/pull/1">https://github.com/example/firstmate/pull/1</a>' "snapshot linkifies done URLs"
   assert_contains "$out" 'fetch(link.href' "snapshot includes focus fetch handler"
   pass "snapshot renders fixture tasks, backlog, review links, and stays read-only"
+}
+
+test_snapshot_meta_without_backlog_line() {
+  local home out spawned
+  home="$TMP_ROOT/orphan-meta-home"
+  spawned=$(( $(date +%s) - 90000 ))
+  make_home "$home"
+  mkdir -p "$home/wt-orphan"
+  fm_write_meta "$home/state/orphan.meta" \
+    "window=fm-orphan" \
+    "spawned=$spawned" \
+    "worktree=$home/wt-orphan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+
+  out=$(run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="orphan">orphan</a>' "snapshot renders meta-only tasks"
+  assert_not_contains "$out" '<div class="detail task-summary">' "snapshot omits a summary when no backlog in-flight item exists"
+  assert_contains "$out" '<td>1d 1h</td>' "snapshot computes meta-only task age from spawned epoch"
+  pass "snapshot handles meta-only in-flight tasks without a backlog summary"
 }
 
 test_serve_and_stop() {
@@ -241,5 +271,6 @@ test_focus_endpoint() {
 
 test_snapshot_empty_home
 test_snapshot_fixture_home
+test_snapshot_meta_without_backlog_line
 test_serve_and_stop
 test_focus_endpoint

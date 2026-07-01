@@ -260,6 +260,14 @@ def parse_item(line):
     return {"id": task_id, "text": rest, "repo": repo, "since": since, "line": line}
 
 
+def task_summary(text):
+    summary = (text or "").strip()
+    trailer = re.search(r"\s*\(([^()]*)\)\s*$", summary)
+    if trailer and re.search(r"\brepo:\s*|\bsince\s+", trailer.group(1)):
+        summary = summary[:trailer.start()].rstrip()
+    return summary
+
+
 def parse_since(value):
     if not value:
         return None
@@ -293,15 +301,43 @@ def human_age(seconds):
     return f"{seconds}s"
 
 
-def task_age(item, meta_path):
+def parse_epoch(value):
+    if not value:
+        return None
+    try:
+        epoch = float(value.strip())
+    except (TypeError, ValueError):
+        return None
+    if epoch < 0:
+        return None
+    return epoch
+
+
+def meta_created_timestamp(meta_path):
+    try:
+        stat = meta_path.stat()
+    except OSError:
+        return None
+    for attr in ("st_birthtime", "st_ctime"):
+        epoch = getattr(stat, attr, None)
+        if epoch and epoch > 0:
+            return epoch
+    return None
+
+
+def task_age(item, meta_path, meta):
     now = _dt.datetime.now().astimezone()
+    now_ts = now.timestamp()
+    spawned = parse_epoch(meta.get("spawned", ""))
+    if spawned is not None:
+        return human_age(now_ts - spawned)
+    created = meta_created_timestamp(meta_path)
+    if created is not None:
+        return human_age(now_ts - created)
     since_dt = parse_since(item.get("since", ""))
     if since_dt is not None:
         return human_age((now - since_dt).total_seconds())
-    try:
-        return human_age(_dt.datetime.now().timestamp() - meta_path.stat().st_mtime)
-    except OSError:
-        return "unknown"
+    return "unknown"
 
 
 def meta_tasks():
@@ -343,10 +379,11 @@ for task_id in sorted(tasks):
             "project": project,
             "kind": kind,
             "mode": mode,
+            "summary": task_summary(item.get("text", "")),
             "state": state,
             "state_line": state_line,
             "last": last,
-            "age": task_age(item, meta_path),
+            "age": task_age(item, meta_path, meta),
             "pr": pr,
             "focusable": bool(meta.get("window")),
         }
@@ -458,9 +495,19 @@ th {{
   background: #fbfbf8;
 }}
 tr:last-child td {{ border-bottom: 0; }}
+.task-cell {{
+  min-width: 160px;
+}}
 .task-id {{
+  display: inline-block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
+}}
+.task-summary {{
+  max-width: 34rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }}
 .focus-link {{
   font: inherit;
@@ -583,8 +630,11 @@ if rows:
                 f'<a class="focus-link" href="{esc(focus_href)}" '
                 f'data-focus-id="{esc(row["id"])}">{esc(row["id"])}</a>'
             )
+        summary_html = ""
+        if row["summary"]:
+            summary_html = f'<div class="detail task-summary">{esc(row["summary"])}</div>'
         print(f"""    <tr>
-      <td class="task-id">{task_html}</td>
+      <td class="task-cell"><span class="task-id">{task_html}</span>{summary_html}</td>
       <td>{project_html}</td>
       <td>{esc(row["kind"])}</td>
       <td>{mode_html}</td>

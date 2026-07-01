@@ -480,8 +480,10 @@ EOF
 fi
 
 mkdir -p "$STATE"
+SPAWNED=$(date +%s)
 {
   echo "window=$T"
+  echo "spawned=$SPAWNED"
   echo "worktree=$WT"
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"

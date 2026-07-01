@@ -55,16 +55,19 @@ run_dash() {
   FM_HOME="$home" \
     FM_DASHBOARD_RUNTIME_DIR="$home/.lavish/fm-dashboard" \
     FM_FAKE_TMUX_LOG="${FM_FAKE_TMUX_LOG:-}" \
+    PYTHONPATH="${FM_TEST_PYTHONPATH:-${PYTHONPATH:-}}" \
     PATH="$FAKEBIN:$PATH" \
     "$DASH" "$@"
 }
 
 write_fixture_home() {
-  local home=$1
+  local home=$1 spawned
+  spawned=$(( $(date +%s) - 90000 ))
   make_home "$home"
   mkdir -p "$home/wt-alpha" "$home/wt-beta"
   fm_write_meta "$home/state/alpha.meta" \
     "window=fm-alpha" \
+    "spawned=$spawned" \
     "worktree=$home/wt-alpha" \
     "project=firstmate" \
     "harness=codex" \
@@ -90,7 +93,7 @@ blocked: waiting on fixture
 EOF
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
-- [ ] alpha - build dashboard (repo: firstmate, since 2026-06-30 00:00)
+- [ ] alpha - [ship/direct-PR] build dashboard copy (repo: firstmate, since 1970-01-01)
 - **beta** - investigate state display (repo: firstmate, since 2026-06-29)
 
 ## Queued
@@ -137,6 +140,54 @@ except urllib.error.HTTPError as exc:
 PY
 }
 
+seconds_ago_iso() {
+  python3 - "$1" <<'PY'
+import datetime as dt
+import sys
+
+then = dt.datetime.now().astimezone() - dt.timedelta(seconds=int(sys.argv[1]))
+print(then.strftime("%Y-%m-%d %H:%M:%S"))
+PY
+}
+
+make_no_birthtime_pythonpath() {
+  local dir=$1 py
+  py="$dir/no-birthtime-pythonpath"
+  mkdir -p "$py"
+  cat > "$py/sitecustomize.py" <<'PY'
+import pathlib
+
+_real_path_stat = pathlib.Path.stat
+
+
+class StatWithoutBirthtime:
+    def __init__(self, stat):
+        self._stat = stat
+
+    def __getattr__(self, name):
+        if name == "st_birthtime":
+            raise AttributeError(name)
+        return getattr(self._stat, name)
+
+    def __getitem__(self, index):
+        return self._stat[index]
+
+    def __iter__(self):
+        return iter(self._stat)
+
+    def __len__(self):
+        return len(self._stat)
+
+
+def stat_without_birthtime(self, *args, **kwargs):
+    return StatWithoutBirthtime(_real_path_stat(self, *args, **kwargs))
+
+
+pathlib.Path.stat = stat_without_birthtime
+PY
+  printf '%s\n' "$py"
+}
+
 FAKEBIN=$(make_fakebin "$TMP_ROOT")
 
 test_snapshot_empty_home() {
@@ -158,7 +209,11 @@ test_snapshot_fixture_home() {
   out=$(run_dash "$home" snapshot)
   after=$(find "$home/state" -type f | sort)
   [ "$before" = "$after" ] || fail "snapshot wrote to state/"
-  assert_contains "$out" '<td class="task-id"><a class="focus-link" href="/focus?id=alpha" data-focus-id="alpha">alpha</a></td>' "snapshot renders alpha focus link"
+  assert_contains "$out" 'data-focus-id="alpha">alpha</a>' "snapshot renders alpha focus link"
+  assert_contains "$out" '<div class="detail task-summary">[ship/direct-PR] build dashboard copy</div>' "snapshot renders the in-flight task summary"
+  assert_not_contains "$out" 'build dashboard copy (repo: firstmate, since 1970-01-01)' "snapshot omits redundant repo/since trailer from the task summary"
+  assert_contains "$out" '<div class="detail task-summary">investigate state display</div>' "snapshot renders backlog summary for bold task ids"
+  assert_contains "$out" '<td>1d 1h</td>' "snapshot computes age from spawned epoch instead of backlog date"
   assert_contains "$out" '<span class="badge badge-working">working</span>' "snapshot uses fm-crew-state working state"
   assert_contains "$out" 'data-focus-id="beta">beta</a>' "snapshot renders beta focus link"
   assert_contains "$out" '<span class="badge badge-blocked">blocked</span>' "snapshot uses fm-crew-state blocked state"
@@ -168,6 +223,112 @@ test_snapshot_fixture_home() {
   assert_contains "$out" '<a href="https://github.com/example/firstmate/pull/1">https://github.com/example/firstmate/pull/1</a>' "snapshot linkifies done URLs"
   assert_contains "$out" 'fetch(link.href' "snapshot includes focus fetch handler"
   pass "snapshot renders fixture tasks, backlog, review links, and stays read-only"
+}
+
+test_snapshot_meta_without_backlog_line() {
+  local home out spawned
+  home="$TMP_ROOT/orphan-meta-home"
+  spawned=$(( $(date +%s) - 90000 ))
+  make_home "$home"
+  mkdir -p "$home/wt-orphan"
+  fm_write_meta "$home/state/orphan.meta" \
+    "window=fm-orphan" \
+    "spawned=$spawned" \
+    "worktree=$home/wt-orphan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+
+  out=$(run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="orphan">orphan</a>' "snapshot renders meta-only tasks"
+  assert_not_contains "$out" '<div class="detail task-summary">' "snapshot omits a summary when no backlog in-flight item exists"
+  assert_contains "$out" '<td>1d 1h</td>' "snapshot computes meta-only task age from spawned epoch"
+  pass "snapshot handles meta-only in-flight tasks without a backlog summary"
+}
+
+test_snapshot_bad_spawned_metadata_does_not_crash() {
+  local home out no_birthtime_py unknown_ages
+  home="$TMP_ROOT/bad-spawned-home"
+  make_home "$home"
+  no_birthtime_py=$(make_no_birthtime_pythonpath "$home")
+  mkdir -p "$home/wt-bad-inf" "$home/wt-bad-nan"
+  fm_write_meta "$home/state/bad-inf.meta" \
+    "window=fm-bad-inf" \
+    "spawned=inf" \
+    "worktree=$home/wt-bad-inf" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/bad-nan.meta" \
+    "window=fm-bad-nan" \
+    "spawned=nan" \
+    "worktree=$home/wt-bad-nan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+
+  out=$(FM_TEST_PYTHONPATH="$no_birthtime_py" run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="bad-inf">bad-inf</a>' "snapshot renders task with infinite spawned metadata"
+  assert_contains "$out" 'data-focus-id="bad-nan">bad-nan</a>' "snapshot renders task with nan spawned metadata"
+  unknown_ages=$(printf '%s' "$out" | grep -o '<td>unknown</td>' | wc -l | tr -d ' ')
+  [ "$unknown_ages" = "2" ] || fail "invalid spawned metadata should fall back without crashing"
+  pass "snapshot rejects non-finite spawned metadata without crashing"
+}
+
+test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown() {
+  local home out since no_birthtime_py unknown_ages
+  home="$TMP_ROOT/legacy-meta-home"
+  since=$(seconds_ago_iso 90000)
+  no_birthtime_py=$(make_no_birthtime_pythonpath "$home")
+  make_home "$home"
+  mkdir -p "$home/wt-legacy-date-only" "$home/wt-legacy-since" "$home/wt-legacy-orphan"
+  fm_write_meta "$home/state/legacy-date-only.meta" \
+    "window=fm-legacy-date-only" \
+    "worktree=$home/wt-legacy-date-only" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/legacy-since.meta" \
+    "window=fm-legacy-since" \
+    "worktree=$home/wt-legacy-since" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/legacy-orphan.meta" \
+    "window=fm-legacy-orphan" \
+    "worktree=$home/wt-legacy-orphan" \
+    "project=firstmate" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  cat > "$home/data/backlog.md" <<EOF
+## In flight
+- [ ] legacy-date-only - old date-only task (repo: firstmate, since 1970-01-01)
+- [ ] legacy-since - old active task (repo: firstmate, since $since)
+EOF
+
+  out=$(FM_TEST_PYTHONPATH="$no_birthtime_py" run_dash "$home" snapshot)
+
+  assert_contains "$out" 'data-focus-id="legacy-date-only">legacy-date-only</a>' "snapshot renders legacy meta task with date-only backlog"
+  assert_contains "$out" 'data-focus-id="legacy-since">legacy-since</a>' "snapshot renders legacy meta task with backlog"
+  assert_contains "$out" 'data-focus-id="legacy-orphan">legacy-orphan</a>' "snapshot renders legacy meta task without backlog"
+  assert_contains "$out" '<td>1d 1h</td>' "legacy meta without birthtime falls back to backlog since"
+  unknown_ages=$(printf '%s' "$out" | grep -o '<td>unknown</td>' | wc -l | tr -d ' ')
+  [ "$unknown_ages" = "2" ] || fail "legacy meta with date-only or missing backlog since has unknown age"
+  pass "snapshot handles legacy meta age fallback without ctime"
 }
 
 test_serve_and_stop() {
@@ -241,5 +402,8 @@ test_focus_endpoint() {
 
 test_snapshot_empty_home
 test_snapshot_fixture_home
+test_snapshot_meta_without_backlog_line
+test_snapshot_bad_spawned_metadata_does_not_crash
+test_snapshot_legacy_meta_without_birthtime_uses_precise_since_then_unknown
 test_serve_and_stop
 test_focus_endpoint

@@ -20,7 +20,8 @@
 # it does not write state/ or interact with watcher/supervision files.
 # In-flight rows show the backlog summary beneath the task id when present,
 # without the trailing repo/since metadata. Age prefers spawned=<epoch> from
-# meta, falls back to legacy meta creation time, then time-precise backlog since.
+# meta, falls back to legacy meta creation time, then time-precise backlog since;
+# date-only backlog since stays unknown.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

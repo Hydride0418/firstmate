@@ -191,7 +191,7 @@ Reconcile reality with your records before doing anything else:
 A firstmate restart must be a non-event.
 All truth lives in tmux, state files, data/backlog.md, data/secondmates.md, persistent secondmate homes, and treehouse; your conversation memory is a cache.
 For passive browser visibility, `bin/fm-dashboard.sh snapshot` renders this home's fleet and `bin/fm-dashboard.sh serve` serves it locally with auto-refresh.
-The dashboard reads `state/*.meta`, `state/*.status`, `data/backlog.md`, and `bin/fm-crew-state.sh <id>` for each current state; it shows the backlog summary under each task id when available, strips the trailing `(repo: ..., since ...)` metadata from that summary, and computes Age from `spawned=<epoch>` first, then legacy meta creation time, then backlog `since`.
+The dashboard reads `state/*.meta`, `state/*.status`, `data/backlog.md`, and `bin/fm-crew-state.sh <id>` for each current state; it shows the backlog summary under each task id when available, strips the trailing `(repo: ..., since ...)` metadata from that summary, and computes Age from `spawned=<epoch>` first, then legacy meta creation time, then a time-precise backlog `since` (date-only `since` stays unknown).
 Its server runtime belongs under `.lavish/fm-dashboard/`, not `state/`.
 
 ## 6. Project management

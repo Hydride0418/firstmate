@@ -22,7 +22,7 @@ Each file also starts with a short header comment.
 | `fm-watch.sh`            | Singleton-safe always-on watcher; absorbs benign wakes in bash, queues and exits only for actionable wakes, and reverts to daemon-owned one-shot behavior while `state/.afk` exists |
 | `fm-supervise-daemon.sh` | Presence-gated sub-supervisor for walk-away (`/afk`) supervision: wraps `fm-watch.sh`, uses the shared wake classifier, self-handles routine wakes in bash, and escalates only captain-relevant events as one verified, batched, single-line digest prefixed with a sentinel marker |
 | `fm-crew-state.sh`       | Print one stable current-state line for a crew by reconciling its matching no-mistakes run-step, even when the pane has closed, with pane and status-log fallback |
-| `fm-dashboard.sh`        | Render a read-only HTML fleet dashboard from this home's `state/` and `data/backlog.md`, including in-flight backlog summaries and Age from task meta, or serve it locally with auto-refresh and pid/log files under `.lavish/fm-dashboard/` |
+| `fm-dashboard.sh`        | Render a read-only HTML fleet dashboard from this home's `state/` and `data/backlog.md`, including in-flight backlog summaries and Age from spawned meta with legacy fallbacks, or serve it locally with auto-refresh and pid/log files under `.lavish/fm-dashboard/` |
 | `fm-tangle-lib.sh`       | Shared default-branch resolution and primary-checkout tangle classification sourced by bootstrap and guard         |
 | `fm-ff-lib.sh`           | Shared guarded fast-forward helper for `/updatefirstmate` origin pulls and no-fetch local secondmate syncs         |
 | `fm-tasks-axi-lib.sh`    | Shared `tasks-axi` compatibility probe sourced by bootstrap and teardown                                            |

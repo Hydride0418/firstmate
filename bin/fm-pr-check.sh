@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record a PR/MR-ready task: appends pr=<url> and a verified pr_head=<sha> to
+# Record a PR/MR-ready task: appends pr=<url> and the review head pr_head=<sha> to
 # state/<id>.meta when available, then arms the watcher's merge poll by writing
 # state/<id>.check.sh, which prints one line iff the PR/MR is merged (the watcher's
 # check contract: output = wake firstmate, silence = keep sleeping).
@@ -25,16 +25,10 @@ shell_quote() {
 META="$STATE/$ID.meta"
 if [ -f "$META" ]; then
   WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
-  LOCAL_HEAD=
   PR_HEAD=
   if [ -n "$WT" ] && [ -d "$WT" ]; then
-    LOCAL_HEAD=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null || true)
-    if [ -n "$LOCAL_HEAD" ]; then
-      if REMOTE_HEAD=$(fm_review_head_sha "$URL" "$WT" 2>/dev/null); then
-        if [ "$LOCAL_HEAD" = "$REMOTE_HEAD" ]; then
-          PR_HEAD=$LOCAL_HEAD
-        fi
-      fi
+    if REMOTE_HEAD=$(fm_review_head_sha "$URL" "$WT" 2>/dev/null); then
+      PR_HEAD=$REMOTE_HEAD
     fi
   fi
   if ! grep -qxF "pr=$URL" "$META"; then

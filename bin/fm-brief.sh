@@ -27,7 +27,10 @@
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # Scout tasks ignore mode - their deliverable is a report, not a merge.
 # Ship tasks include a project-memory section so durable project-intrinsic
-# learnings can be committed to AGENTS.md through the project's delivery path.
+# learnings can be committed to AGENTS.md through the project's delivery path;
+# it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
+# over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
+# self-governance section when a touched project AGENTS.md lacks it.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -113,7 +116,7 @@ Routine internal supervision, heartbeats, retries, and crewmate churn stay insid
 
 # Definition of done
 You are persistent by default. Do not exit just because your queue is empty.
-On startup and restart, run normal firstmate bootstrap and recovery for your own home, but only to RECONCILE work that is already yours: in-flight crewmates, tracked backlog items, and durable watches recorded in this home.
+On startup and restart, run normal firstmate bootstrap and recovery through \`bin/fm-session-start.sh\` for your own home, but only to RECONCILE work that is already yours: in-flight crewmates, tracked backlog items, and durable watches recorded in this home.
 When you have no assigned or in-flight work after that reconciliation, go idle and wait silently for the main firstmate to route you a task.
 An empty queue is a healthy resting state, not a cue to invent work: never spawn a survey, audit, or any self-directed "find work" task on your own initiative.
 If this charter cannot be carried out, append \`blocked: {why}\` or \`failed: {why}\` to the main status file and stop.
@@ -200,7 +203,7 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 
-**Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable treehouse worktree you were launched in, typically a path under a \`.treehouse/\` pool, not the primary checkout firstmate operates from.
+**Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 
@@ -223,7 +226,9 @@ $RULE1
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
-If this task produced durable project-intrinsic knowledge, record it in \`AGENTS.md\` as part of your change.
+Record only project knowledge useful to almost every future session.
+For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
+If you touch a project \`AGENTS.md\` that lacks \`## Maintaining this file\`, add that short self-governance section from \`$FM_ROOT/bin/fm-ensure-agents-md.sh\` in the same pass.
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
 EOF
@@ -255,7 +260,7 @@ When you believe it is complete, append \`done: {summary}\` to the status file a
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR/MR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
-Follow no-mistakes' own guidance for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
+Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
 Two firstmate-specific rules layer on top of that guidance:
@@ -263,7 +268,7 @@ Two firstmate-specific rules layer on top of that guidance:
   When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
 - Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
 
-After /no-mistakes reports CI green, append \`done: PR {url} checks green\` or \`done: MR {url} checks green\` and stop. You are finished.
+After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` or \`done: MR {url} checks green\` and stop. You are finished.
 EOF
     ;;
 esac
